@@ -1,6 +1,40 @@
 {
   "site_name": "CASIBOM",
-  "start_url": "https://example.com",
-  "ready_selector": "body",
-  "timeout_ms": 15000
+  "timeout_ms": 15000,
+  "variables": {
+    "code": "${promo_code}",
+    "platform": "PromoRunner"
+  },
+  "steps": [
+    {
+      "action": "goto",
+      "url": "https://example.com"
+    },
+    {
+      "action": "wait",
+      "selector": "body"
+    },
+    {
+      "action": "assert_url",
+      "contains": "example.com"
+    },
+    {
+      "action": "assert_text",
+      "text": "Example Domain"
+    },
+    {
+      "action": "extract_text",
+      "selector": "h1",
+      "label": "Sayfa başlığı",
+      "save_as": "page_title"
+    },
+    {
+      "action": "log",
+      "message": "${platform} | Site: ${site} | Kod: ${code} | Başlık: ${page_title}"
+    },
+    {
+      "action": "screenshot",
+      "path": "logs/screenshots/casibom_test.png"
+    }
+  ]
 }
