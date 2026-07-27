@@ -9,20 +9,7 @@ class ActionIf:
         if not condition:
             return True
 
-        operator = condition.get("operator")
-
-        if operator == "contains":
-            return ConditionEngine.contains(
-                condition["left"],
-                condition["right"],
-                context.all(),
-            )
-
-        if operator == "equals":
-            return ConditionEngine.equals(
-                condition["left"],
-                condition["right"],
-                context.all(),
-            )
-
-        return False
+        return ConditionEngine.evaluate_condition(
+            condition=condition,
+            variables=context.all(),
+        )
