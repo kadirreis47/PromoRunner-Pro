@@ -30,11 +30,29 @@
     },
     {
       "action": "log",
-      "message": "${platform} | Site: ${site} | Kod: ${code} | Başlık: ${page_title}"
+      "message": "Koşul başarılı: ${page_title}",
+      "if": {
+        "operator": "contains",
+        "left": "${page_title}",
+        "right": "Example"
+      }
+    },
+    {
+      "action": "log",
+      "message": "BU SATIR YAZILMAMALI",
+      "if": {
+        "operator": "equals",
+        "left": "${site}",
+        "right": "ROBIN"
+      }
+    },
+    {
+      "action": "log",
+      "message": "${platform} | Site: ${site} | Kod: ${code}"
     },
     {
       "action": "screenshot",
-      "path": "logs/screenshots/casibom_test.png"
+      "path": "logs/screenshots/casibom_condition_test.png"
     }
   ]
 }
