@@ -1,0 +1,6 @@
+{
+  "site_name": "CASIBOM",
+  "start_url": "https://example.com",
+  "ready_selector": "body",
+  "timeout_ms": 15000
+}
