@@ -10,7 +10,9 @@ from playwright.async_api import (
 )
 
 from engine.action_if import ActionIf
+from engine.branch_engine import BranchEngine
 from engine.context import ExecutionContext
+from engine.loop_engine import BreakLoop, ContinueLoop, LoopEngine
 from engine.variable_engine import VariableEngine
 from site_handlers.base_handler import BaseHandler
 
@@ -48,27 +50,12 @@ class GenericHandler(BaseHandler):
         print(f"[GENERIC] Profil çalışıyor: {site_name}")
 
         try:
-            for index, step in enumerate(steps, start=1):
-                if not isinstance(step, dict):
-                    raise ValueError(f"{index}. adım geçerli bir nesne değil.")
-
-                action = str(step.get("action", "")).strip().lower()
-
-                if not ActionIf.should_execute(step, context):
-                    print(
-                        f"[GENERIC] Adım {index}/{len(steps)} atlandı: "
-                        f"koşul sağlanmadı ({action})"
-                    )
-                    continue
-
-                print(f"[GENERIC] Adım {index}/{len(steps)}: {action}")
-
-                await self._execute_step(
-                    page=page,
-                    step=step,
-                    context=context,
-                    timeout=timeout,
-                )
+            await self._execute_steps(
+                page=page,
+                steps=steps,
+                context=context,
+                timeout=timeout,
+            )
 
             print(f"[GENERIC] Profil başarıyla tamamlandı: {site_name}")
             return True
@@ -81,12 +68,73 @@ class GenericHandler(BaseHandler):
             print(f"[GENERIC] Profil hatası: {exc}")
             return False
 
+    async def _execute_steps(
+        self,
+        page: Page,
+        steps: list[dict[str, Any]],
+        context: ExecutionContext,
+        timeout: int,
+        scope: str = "root",
+        loop_depth: int = 0,
+    ) -> None:
+        for index, step in enumerate(steps, start=1):
+            if not isinstance(step, dict):
+                raise ValueError(
+                    f"{scope} içindeki {index}. adım geçerli bir nesne değil."
+                )
+
+            action = str(step.get("action", "")).strip().lower()
+            position = f"{scope}.{index}" if scope != "root" else str(index)
+
+            if not ActionIf.should_execute(step, context):
+                print(
+                    f"[GENERIC] Adım {position} atlandı: "
+                    f"koşul sağlanmadı ({action})"
+                )
+                continue
+
+            print(f"[GENERIC] Adım {position}: {action}")
+
+            await self._execute_step(
+                page=page,
+                step=step,
+                context=context,
+                timeout=timeout,
+                loop_depth=loop_depth,
+            )
+
+    async def _execute_branch(
+        self,
+        page: Page,
+        step: dict[str, Any],
+        context: ExecutionContext,
+        timeout: int,
+        loop_depth: int,
+    ) -> None:
+        result = BranchEngine.select(step, context.all())
+
+        if not result.steps:
+            print("[GENERIC] Branch eşleşmedi; çalıştırılacak adım yok.")
+            return
+
+        print(f"[GENERIC] Branch seçildi: {result.branch_name}")
+
+        await self._execute_steps(
+            page=page,
+            steps=result.steps,
+            context=context,
+            timeout=timeout,
+            scope=f"branch:{result.branch_name}",
+            loop_depth=loop_depth,
+        )
+
     async def _execute_step(
         self,
         page: Page,
         step: dict[str, Any],
         context: ExecutionContext,
         timeout: int,
+        loop_depth: int = 0,
     ) -> None:
         action = str(step.get("action", "")).strip().lower()
 
@@ -114,8 +162,173 @@ class GenericHandler(BaseHandler):
         elif action == "log":
             self._log(step, context)
 
+        elif action == "branch":
+            await self._execute_branch(
+                page, step, context, timeout, loop_depth
+            )
+
+        elif action in {"loop", "repeat", "while", "for_each"}:
+            await self._execute_loop(
+                page, step, context, timeout, loop_depth
+            )
+
+        elif action == "break":
+            if loop_depth < 1:
+                raise ValueError("break yalnızca loop içinde kullanılabilir.")
+            raise BreakLoop()
+
+        elif action == "continue":
+            if loop_depth < 1:
+                raise ValueError("continue yalnızca loop içinde kullanılabilir.")
+            raise ContinueLoop()
+
+        elif action == "set":
+            self._set_variable(step, context)
+
+        elif action == "increment":
+            self._increment_variable(step, context)
+
         else:
             raise ValueError(f"Desteklenmeyen action: {action}")
+
+    async def _execute_loop(
+        self,
+        page: Page,
+        step: dict[str, Any],
+        context: ExecutionContext,
+        timeout: int,
+        loop_depth: int,
+    ) -> None:
+        spec = LoopEngine.parse(step, context.all())
+        saved = self._save_loop_variables(
+            context, spec.index_as, spec.item_as
+        )
+
+        try:
+            if spec.loop_type == "repeat":
+                assert spec.times is not None
+                for index in range(spec.times):
+                    context.set(spec.index_as, index)
+                    context.set(spec.item_as, index)
+                    if await self._run_loop_iteration(
+                        page, spec.steps, context, timeout,
+                        loop_depth, f"repeat:{index}"
+                    ):
+                        break
+
+            elif spec.loop_type == "for_each":
+                assert spec.items is not None
+                for index, item in enumerate(spec.items):
+                    if index >= spec.max_iterations:
+                        raise RuntimeError(
+                            "for_each max_iterations sınırını aştı."
+                        )
+                    context.set(spec.index_as, index)
+                    context.set(spec.item_as, item)
+                    if await self._run_loop_iteration(
+                        page, spec.steps, context, timeout,
+                        loop_depth, f"for_each:{index}"
+                    ):
+                        break
+
+            else:
+                assert spec.condition is not None
+                index = 0
+                while LoopEngine.condition_matches(
+                    spec.condition, context.all()
+                ):
+                    if index >= spec.max_iterations:
+                        raise RuntimeError(
+                            "while max_iterations sınırını aştı."
+                        )
+                    context.set(spec.index_as, index)
+                    context.set(spec.item_as, index)
+                    should_break = await self._run_loop_iteration(
+                        page, spec.steps, context, timeout,
+                        loop_depth, f"while:{index}"
+                    )
+                    index += 1
+                    if should_break:
+                        break
+        finally:
+            self._restore_loop_variables(context, saved)
+
+    async def _run_loop_iteration(
+        self,
+        page: Page,
+        steps: list[dict[str, Any]],
+        context: ExecutionContext,
+        timeout: int,
+        loop_depth: int,
+        scope: str,
+    ) -> bool:
+        try:
+            await self._execute_steps(
+                page=page,
+                steps=steps,
+                context=context,
+                timeout=timeout,
+                scope=scope,
+                loop_depth=loop_depth + 1,
+            )
+        except ContinueLoop:
+            return False
+        except BreakLoop:
+            return True
+        return False
+
+    @staticmethod
+    def _save_loop_variables(
+        context: ExecutionContext,
+        *names: str,
+    ) -> dict[str, tuple[bool, Any]]:
+        return {
+            name: (context.has(name), context.get(name))
+            for name in set(names)
+        }
+
+    @staticmethod
+    def _restore_loop_variables(
+        context: ExecutionContext,
+        saved: dict[str, tuple[bool, Any]],
+    ) -> None:
+        for name, (existed, value) in saved.items():
+            if existed:
+                context.set(name, value)
+            else:
+                context.delete(name)
+
+    @staticmethod
+    def _set_variable(
+        step: dict[str, Any],
+        context: ExecutionContext,
+    ) -> None:
+        name = str(step.get("name", step.get("save_as", ""))).strip()
+        if not name:
+            raise ValueError("set adımında name alanı gerekli.")
+        value = VariableEngine.resolve(step.get("value"), context.all())
+        context.set(name, value)
+
+    @staticmethod
+    def _increment_variable(
+        step: dict[str, Any],
+        context: ExecutionContext,
+    ) -> None:
+        name = str(step.get("name", "")).strip()
+        if not name:
+            raise ValueError("increment adımında name alanı gerekli.")
+
+        amount = VariableEngine.resolve(step.get("by", 1), context.all())
+        current = context.get(name, 0)
+        try:
+            new_value = float(current) + float(amount)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("increment yalnızca sayısal değerlerle çalışır.") from exc
+
+        if new_value.is_integer():
+            context.set(name, int(new_value))
+        else:
+            context.set(name, new_value)
 
     async def _goto(
         self,

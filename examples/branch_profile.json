@@ -1,0 +1,80 @@
+{
+  "site_name": "BRANCH_TEST",
+  "timeout_ms": 15000,
+  "variables": {
+    "status": "approved",
+    "result_message": "promo success"
+  },
+  "steps": [
+    {
+      "action": "branch",
+      "branches": [
+        {
+          "name": "approved_flow",
+          "if": {
+            "all": [
+              {
+                "operator": "equals",
+                "left": "${status}",
+                "right": "approved"
+              },
+              {
+                "operator": "contains",
+                "left": "${result_message}",
+                "right": "success"
+              }
+            ]
+          },
+          "steps": [
+            {
+              "action": "log",
+              "message": "Onay branch çalıştı: ${promo_code}"
+            },
+            {
+              "action": "branch",
+              "branches": [
+                {
+                  "name": "nested_success",
+                  "if": {
+                    "operator": "contains",
+                    "left": "${result_message}",
+                    "right": "success"
+                  },
+                  "steps": [
+                    {
+                      "action": "log",
+                      "message": "Nested branch başarılı."
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "rejected_flow",
+          "if": {
+            "operator": "equals",
+            "left": "${status}",
+            "right": "rejected"
+          },
+          "steps": [
+            {
+              "action": "log",
+              "message": "Kod reddedildi."
+            }
+          ]
+        }
+      ],
+      "default": {
+        "name": "unknown_flow",
+        "steps": [
+          {
+            "action": "log",
+            "message": "Bilinmeyen durum: ${status}"
+          }
+        ]
+      }
+    }
+  ]
+}

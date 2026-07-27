@@ -38,6 +38,24 @@ class ConditionEngine:
         if operator == "ends_with":
             return str(resolved_left).endswith(str(resolved_right))
 
+        if operator in {"greater_than", "gt"}:
+            return cls._as_number(resolved_left) > cls._as_number(resolved_right)
+
+        if operator in {"greater_or_equal", "gte"}:
+            return cls._as_number(resolved_left) >= cls._as_number(resolved_right)
+
+        if operator in {"less_than", "lt"}:
+            return cls._as_number(resolved_left) < cls._as_number(resolved_right)
+
+        if operator in {"less_or_equal", "lte"}:
+            return cls._as_number(resolved_left) <= cls._as_number(resolved_right)
+
+        if operator == "in":
+            return resolved_left in resolved_right
+
+        if operator == "not_in":
+            return resolved_left not in resolved_right
+
         if operator == "exists":
             return resolved_left is not None and str(resolved_left).strip() != ""
 
@@ -45,6 +63,13 @@ class ConditionEngine:
             return resolved_left is None or str(resolved_left).strip() == ""
 
         raise ValueError(f"Desteklenmeyen koşul operatörü: {operator}")
+
+    @staticmethod
+    def _as_number(value: Any) -> float:
+        try:
+            return float(value)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"Sayısal değer bekleniyordu: {value}") from exc
 
     @classmethod
     def evaluate_condition(

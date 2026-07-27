@@ -1,0 +1,71 @@
+{
+  "site_name": "LOOP_ENGINE_EXAMPLE",
+  "timeout_ms": 15000,
+  "variables": {
+    "counter": 0,
+    "promo_codes": ["PROMO10", "PROMO20", "STOP", "PROMO30"]
+  },
+  "steps": [
+    {
+      "action": "repeat",
+      "times": 3,
+      "index_as": "repeat_index",
+      "steps": [
+        {
+          "action": "log",
+          "message": "Repeat index: ${repeat_index}"
+        }
+      ]
+    },
+    {
+      "action": "for_each",
+      "items": "${promo_codes}",
+      "item_as": "code",
+      "index_as": "code_index",
+      "steps": [
+        {
+          "action": "branch",
+          "branches": [
+            {
+              "name": "stop_loop",
+              "if": {
+                "operator": "equals",
+                "left": "${code}",
+                "right": "STOP"
+              },
+              "steps": [
+                {
+                  "action": "break"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "action": "log",
+          "message": "Code ${code_index}: ${code}"
+        }
+      ]
+    },
+    {
+      "action": "while",
+      "condition": {
+        "operator": "less_than",
+        "left": "${counter}",
+        "right": 3
+      },
+      "max_iterations": 10,
+      "steps": [
+        {
+          "action": "increment",
+          "name": "counter",
+          "by": 1
+        },
+        {
+          "action": "log",
+          "message": "Counter: ${counter}"
+        }
+      ]
+    }
+  ]
+}
